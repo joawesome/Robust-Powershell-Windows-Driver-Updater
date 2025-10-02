@@ -1,9 +1,10 @@
 # Description: This script will install the PSWindowsUpdate module and check for driver updates.
-
+# It will run in a separate window and check for updates. If there are no updates, it will exit.
+# You can just run this script by itself by running the command:
+# irm  https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
 
 # How many attempts we want to try and install the module.
-$MaxAttempts   = 5
-$AutoReboot    = $true   # set to $true for automatic reboot, $false for user prompt
+$MaxAttempts = 5
 
 for ($i = 1; $i -le $MaxAttempts; $i++) {
     if (-Not (Get-Module -Name PSWindowsUpdate)) {
@@ -26,47 +27,25 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
         Write-Host "Checking for updates..."
 
         # Retry loop for driver installation
-        $WUmaxAttempts    = 10
-        $WUattempt        = 0
-        $WUsuccess        = $false
-        $ConsecutiveFails = 0
+        $WUmaxAttempts = 10
+        $WUattempt = 0
+        $WUsuccess = $false
 
         while (-not $WUsuccess -and $WUattempt -lt $WUmaxAttempts) {
             try {
                 $WUattempt++
                 Write-Host "Windows Update Attempt $WUattempt of $WUmaxAttempts..."
 
-                # Capture the result instead of discarding it
-                $results = Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
+                Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
 
-                # Look at the statuses
-                $failedCount    = ($results | Where-Object { $_.Status -eq "Failed" }).Count
-                $installedCount = ($results | Where-Object { $_.Status -eq "Installed" }).Count
-
-                if ($failedCount -gt 0) {
-                    Write-Warning "$failedCount update(s) failed in this attempt."
-                    $ConsecutiveFails++
-                } else {
-                    $ConsecutiveFails = 0
-                }
-
-                if ($installedCount -gt 0 -and $failedCount -eq 0) {
-                    Write-Host "Windows Update completed successfully."
-                    $WUsuccess = $true
-                } elseif ($ConsecutiveFails -ge 3) {
-                    Write-Warning "3 consecutive failures detected. Retrying after delay..."
-                    $ConsecutiveFails = 0
-                    Start-Sleep -Seconds 30
-                }
+                Write-Host "Windows Update completed successfully."
+                $WUsuccess = $true
             }
             catch {
-                Write-Warning "Windows Update threw an error: $($_.Exception.Message)"
+                Write-Warning "Windows Update failed with error: $($_.Exception.Message)"
 
                 if ($_.Exception.HResult -eq -2145124329) {  # 0x80248007
-                    Write-Warning "Encountered 0x80248007 (cache issue). Retrying..."
-                } elseif ($_.Exception.Message -like "*value does not fall within the expected range*") {
-                    Write-Warning "Driver installation may still be in progress. Waiting 2 minutes..."
-                    Start-Sleep -Seconds 120
+                    Write-Warning "Encountered 0x80248007 (Windows Update cache issue). Retrying..."
                 } else {
                     Write-Warning "Unexpected error. Retrying..."
                 }
@@ -77,22 +56,6 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
 
         if (-not $WUsuccess) {
             Write-Error "Driver update failed after $WUmaxAttempts attempts."
-        }
-
-        # --- Reboot handling ---
-        if (Get-WURebootStatus) {
-            if ($AutoReboot -eq $true) {
-                Write-Host "Reboot is required. Restarting automatically..."
-                Restart-Computer -Force
-            } else {
-                $response = Read-Host "Reboot is required. Do you want to restart now? (y/n)"
-                if ($response -match '^[Yy]$') {
-                    Write-Host "Rebooting system..."
-                    Restart-Computer -Force
-                } else {
-                    Write-Host "Reboot skipped by user."
-                }
-            }
         }
 
         break
