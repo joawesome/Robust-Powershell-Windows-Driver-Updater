@@ -1,9 +1,10 @@
-# Description: This script will install the PSWindowsUpdate module and check for driver updates.
-# It will run in a separate window and check for updates. If there are no updates, it will exit.
-# You can just run this script by itself by running the command:
-# irm  https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
+# Description: This script will install the PSWindowsUpdate module, check for driver updates, 
+# and automatically reboot if required.
+# It will run in a separate window. If there are no updates, it will exit.
+# Run this script directly:
+# irm https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
 
-# How many attempts we want to try and install the module.
+# Maximum attempts for module installation
 $MaxAttempts = 5
 
 for ($i = 1; $i -le $MaxAttempts; $i++) {
@@ -36,9 +37,17 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                 $WUattempt++
                 Write-Host "Windows Update Attempt $WUattempt of $WUmaxAttempts..."
 
-                Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
+                # Install driver updates
+                Install-WindowsUpdate -AcceptAll -UpdateType Driver -ErrorAction Stop
 
                 Write-Host "Windows Update completed successfully."
+
+                # Reboot automatically if required
+                if (Get-WURebootStatus) {
+                    Write-Host "Reboot is required. Rebooting now..."
+                    shutdown /r /t 5 /f
+                }
+
                 $WUsuccess = $true
             }
             catch {
