@@ -28,7 +28,7 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
         Write-Host "Checking for updates..."
 
         # Retry loop for driver installation
-        $WUmaxAttempts = 10
+        $WUmaxAttempts = 8
         $WUattempt = 0
         $WUsuccess = $false
 
@@ -37,18 +37,20 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                 $WUattempt++
                 Write-Host "Windows Update Attempt $WUattempt of $WUmaxAttempts..."
 
-                # Install driver updates
-                Install-WindowsUpdate -AcceptAll -UpdateType Driver -ErrorAction Stop
+                # Run driver updates and capture output
+                $updateOutput = Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop -Verbose -WhatIf:$false
+
+                # Print output to console
+                Write-Host $updateOutput
 
                 Write-Host "Windows Update completed successfully."
+                $WUsuccess = $true
 
-                # Reboot automatically if required
-                if (Get-WURebootStatus) {
+                # Reboot automatically only if the "Reboot is required" message appears
+                if ($updateOutput -match "Reboot is required") {
                     Write-Host "Reboot is required. Rebooting now..."
                     shutdown /r /t 5 /f
                 }
-
-                $WUsuccess = $true
             }
             catch {
                 Write-Warning "Windows Update failed with error: $($_.Exception.Message)"
