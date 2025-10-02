@@ -2,7 +2,7 @@
 
 
 # How many attempts we want to try and install the module.
-$MaxAttempts   = 10
+$MaxAttempts   = 5
 $AutoReboot    = $true   # set to $true for automatic reboot, $false for user prompt
 
 for ($i = 1; $i -le $MaxAttempts; $i++) {
@@ -26,7 +26,7 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
         Write-Host "Checking for updates..."
 
         # Retry loop for driver installation
-        $WUmaxAttempts    = 5
+        $WUmaxAttempts    = 10
         $WUattempt        = 0
         $WUsuccess        = $false
         $ConsecutiveFails = 0
