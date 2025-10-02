@@ -7,3 +7,7 @@ This was inspired by @[SapphSky](https://github.com/SapphSky)'s driver update sc
 
 This uses the [PSWindowsUpdate](https://www.powershellgallery.com/packages/pswindowsupdate) module to install device drivers through windows updates. Due to the nature of windows updates errors can occur when installing multiple drivers at once. This is mostly due to a caching issue. To overcome this, this script reruns the module if the error occurs. This minimizes user interaction in the case of an error so that the user do not have to rerun the module.
 
+## How to use
+
+* Open command prompt or powershell as Administrator
+* 
