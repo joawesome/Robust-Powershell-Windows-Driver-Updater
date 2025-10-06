@@ -1,10 +1,9 @@
-# Description: This script will install the PSWindowsUpdate module, check for driver updates, 
-# and automatically reboot if required.
-# It will run in a separate window. If there are no updates, it will exit.
-# Run this script directly:
-# irm https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
+# Description: This script will install the PSWindowsUpdate module and check for driver updates.
+# It will run in a separate window and check for updates. If there are no updates, it will exit.
+# You can just run this script by itself by running the command:
+# irm  https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
 
-# Maximum attempts for module installation
+# How many attempts we want to try and install the module.
 $MaxAttempts = 5
 
 for ($i = 1; $i -le $MaxAttempts; $i++) {
@@ -28,7 +27,7 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
         Write-Host "Checking for updates..."
 
         # Retry loop for driver installation
-        $WUmaxAttempts = 8
+        $WUmaxAttempts = 10
         $WUattempt = 0
         $WUsuccess = $false
 
@@ -37,20 +36,10 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                 $WUattempt++
                 Write-Host "Windows Update Attempt $WUattempt of $WUmaxAttempts..."
 
-                # Run driver updates and capture output
-                $updateOutput = Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop -Verbose -WhatIf:$false
-
-                # Print output to console
-                Write-Host $updateOutput
+                Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
 
                 Write-Host "Windows Update completed successfully."
                 $WUsuccess = $true
-
-                # Reboot automatically only if the "Reboot is required" message appears
-                if ($updateOutput -match "Reboot is required") {
-                    Write-Host "Reboot is required. Rebooting now..."
-                    shutdown /r /t 5 /f
-                }
             }
             catch {
                 Write-Warning "Windows Update failed with error: $($_.Exception.Message)"
