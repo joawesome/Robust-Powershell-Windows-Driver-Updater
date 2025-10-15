@@ -22,9 +22,9 @@ This uses the [PSWindowsUpdate](https://www.powershellgallery.com/packages/pswin
 * let the update run and reboot if needed
 
 ## Known issues
-* Sometimes a whole bunch of updates will fail. Re-run script to get all mising/ failed updates.
+* Sometimes a whole bunch of updates will appear to fail. Re-run script to get all mising/failed updates.
 
 
 ### To-dos for future revisions
 * Detect failures and retry installation
-* Allow an option that reboots computer automatically instead of waiting for user najn'
+* Allow an option that reboots computer automatically instead of waiting for user input
