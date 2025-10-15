@@ -9,5 +9,16 @@ This uses the [PSWindowsUpdate](https://www.powershellgallery.com/packages/pswin
 
 ## How to use
 
-* Open command prompt or powershell as Administrator
-* 
+* Make sure that the computer that this script is running on has internet access
+* Open command prompt or powershell as Administrator (or jut press shift + f10 in windows out of box experience)
+* Input the following command:
+  ''' powershell -ExecutionPolicy Bypass -Command “irm https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex” '''
+* let the update run and reboot if needed
+
+## Known issues
+* Sometimes a whole bunch of updates will fail. Re-run script to get all mising/ failed updates.
+
+
+### To-dos for future revisions
+* Detect failures and retry installation
+* Allow an option that reboots computer automatically instead of waiting for user najn'
