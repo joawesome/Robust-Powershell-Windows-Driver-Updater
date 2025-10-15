@@ -20,7 +20,7 @@ This uses the [PSWindowsUpdate](https://www.powershellgallery.com/packages/pswin
 
   ![QR Code](qr_command_image.png)
 
-  <img src="aqr_command_image.png" alt="QR Code" width="30%">
+  <img src="qr_command_image.png" alt="QR Code" width="30%">
 
 
 * let the update run and reboot if needed
