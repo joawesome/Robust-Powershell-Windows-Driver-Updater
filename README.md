@@ -12,7 +12,7 @@ This uses the [PSWindowsUpdate](https://www.powershellgallery.com/packages/pswin
 * Make sure that the computer that this script is running on has internet access
 * Open command prompt or powershell as Administrator (or jut press shift + f10 in windows out of box experience)
 * Input the following command:
-  ''' powershell -ExecutionPolicy Bypass -Command “irm https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex” '''
+  ``` powershell -ExecutionPolicy Bypass -Command “irm https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex” ```
   or if you have a scanner attached to the computer, you can scan this QR code: ![QR Code](qr_command_image.png)
 
 * let the update run and reboot if needed
