@@ -1,91 +1,133 @@
 # Description: This script will install the PSWindowsUpdate module and check for driver updates.
 # It will run in a separate window and check for updates. If there are no updates, it will exit.
-# You can just run this script by itself by running the command:
-# irm  https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
+# You can run this script by itself:
+#   irm https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
 
-# How many attempts we want to try and install the module.
-$MaxAttempts = 5
+# ---------------------------
+# Relaunch elevated (single UAC) if needed
+# ---------------------------
+if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+    # Determine script path (works when saved to disk; with iex fallback to MyInvocation)
+    $scriptPath = $PSCommandPath
+    if ([string]::IsNullOrEmpty($scriptPath)) { $scriptPath = $MyInvocation.MyCommand.Definition }
 
-# Function: Test if a reboot is pending (checks common indicators in both registry views)
-function Test-PendingReboot {
-    Add-Type -AssemblyName Microsoft.Win32.Registry
-
-    # Helper to check key existence in a specific view
-    $checkKey = {
-        param($hive, $subKey, $view)
-        try {
-            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
-            $k = $base.OpenSubKey($subKey)
-            if ($k) { return $true }
-        } catch { }
-        return $false
+    # Build argument list to re-run the same script file
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
+    try {
+        # Start elevated copy and exit current (this triggers a single UAC prompt)
+        Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -Verb RunAs
+        exit
+    } catch {
+        Write-Error "Failed to relaunch elevated: $($_.Exception.Message)"
+        exit 1
     }
-
-    # Helper to read a value safely
-    $readValue = {
-        param($hive, $subKey, $valueName, $view)
-        try {
-            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
-            $k = $base.OpenSubKey($subKey)
-            if ($k) {
-                return $k.GetValue($valueName, $null)
-            }
-        } catch { }
-        return $null
-    }
-
-    $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
-    foreach ($view in $views) {
-        # Component Based Servicing RebootPending
-        if (&$checkKey([Microsoft.Win32.RegistryHive]::LocalMachine, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending', $view)) {
-            return $true
-        }
-
-        # Windows Update RebootRequired (this is the key you mentioned)
-        if (&$checkKey([Microsoft.Win32.RegistryHive]::LocalMachine, 'SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\RebootRequired', $view)) {
-            return $true
-        }
-
-        # PendingFileRenameOperations
-        $pfro = &$readValue([Microsoft.Win32.RegistryHive]::LocalMachine, 'SYSTEM\CurrentControlSet\Control\Session Manager', 'PendingFileRenameOperations', $view)
-        if ($pfro -and ($pfro -is [string[]] -or $pfro.Length -gt 0)) {
-            return $true
-        }
-
-        # Pending computer rename (ActiveComputerName vs ComputerName)
-        try {
-            $activeName = &$readValue([Microsoft.Win32.RegistryHive]::LocalMachine, 'SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName', 'ComputerName', $view)
-            $pendingName = &$readValue([Microsoft.Win32.RegistryHive]::LocalMachine, 'SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName', 'ComputerName', $view)
-            if ($activeName -and $pendingName -and ($activeName -ne $pendingName)) {
-                return $true
-            }
-        } catch { }
-    }
-
-    return $false
 }
 
+# ---------------------------
+# Minimize interactive prompts
+# ---------------------------
+# Temporarily suppress confirmation prompts (restore later if needed)
+$oldConfirmPreference = $ConfirmPreference
+$ConfirmPreference = 'None'
+
+# ---------------------------
+# Settings
+# ---------------------------
+$MaxAttempts = 5
+
+# Phrase to detect in module output (case-insensitive). Adjust if your module prints a different phrase.
+$RebootPhraseRegex = '(?i)\breboot\b.*\brequired\b'
+
+# ---------------------------
+# Helper: capture restart from module output by transcript
+# ---------------------------
+function Invoke-InstallWindowsUpdate-WithTranscript {
+    param(
+        [string]$TranscriptPath,
+        [int]$DelayBeforeRestartSeconds = 5
+    )
+
+    # Start transcript to capture Write-Host / host output
+    Start-Transcript -Path $TranscriptPath -Force | Out-Null
+
+    try {
+        # Run driver updates; keep -IgnoreReboot so we control restart from script
+        Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
+    } finally {
+        # Always stop transcript
+        Stop-Transcript | Out-Null
+    }
+
+    # Read transcript and search for the reboot phrase
+    $foundReboot = $false
+    try {
+        $text = Get-Content -Path $TranscriptPath -Raw -ErrorAction SilentlyContinue
+        if ($text -and ($text -match $RebootPhraseRegex)) {
+            $foundReboot = $true
+        }
+    } catch {
+        Write-Warning "Failed to read transcript: $($_.Exception.Message)"
+    }
+
+    if ($foundReboot) {
+        Write-Host "Detected reboot message in module output."
+        if ($DelayBeforeRestartSeconds -gt 0) {
+            Write-Host "Restarting in $DelayBeforeRestartSeconds seconds..."
+            Start-Sleep -Seconds $DelayBeforeRestartSeconds
+        }
+
+        try {
+            Restart-Computer -Force -Confirm:$false -ErrorAction Stop
+        } catch {
+            Write-Error "Automatic reboot failed: $($_.Exception.Message)"
+            # As a fallback, try to spawn an elevated one-liner restart (should not be necessary since we relaunched elevated)
+            try {
+                Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', 'Restart-Computer -Force -Confirm:$false' -Verb RunAs -ErrorAction Stop
+            } catch {
+                Write-Error "Fallback elevated restart also failed: $($_.Exception.Message)"
+            }
+        }
+    } else {
+        Write-Host "No reboot message found in module output."
+    }
+
+    # Clean up transcript file
+    try { Remove-Item -Path $TranscriptPath -ErrorAction SilentlyContinue } catch {}
+}
+
+# ---------------------------
+# Main loop (module install + update attempts)
+# ---------------------------
 for ($i = 1; $i -le $MaxAttempts; $i++) {
-    if (-Not (Get-Module -Name PSWindowsUpdate)) {
+    # Check if PSWindowsUpdate is loaded or available; prefer loaded check for simplicity here
+    if (-not (Get-Module -Name PSWindowsUpdate -ListAvailable)) {
         Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Status "Attempt $i of $MaxAttempts"
         Write-Host 'Getting Package Provider'
-        Get-PackageProvider -Name Nuget -ForceBootstrap | Out-Null
+        try { Get-PackageProvider -Name Nuget -ForceBootstrap -ErrorAction Stop | Out-Null } catch { Write-Warning "NuGet bootstrap failed: $($_.Exception.Message)" }
 
         Write-Host 'Setting Repository'
-        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+        try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop } catch { Write-Warning "Set-PSRepository warning: $($_.Exception.Message)" }
 
         Write-Host 'Installing PSWindowsUpdate Module...'
-        Install-Module -Name PSWindowsUpdate -Force
-        Start-Sleep -Seconds 1
+        try {
+            Install-Module -Name PSWindowsUpdate -Force -AllowClobber -ErrorAction Stop
+            Start-Sleep -Seconds 1
 
-        Write-Host 'Importing module...'
-        Import-Module -Name PSWindowsUpdate -Force
-        Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Completed
+            Write-Host 'Importing module...'
+            Import-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+        } catch {
+            Write-Warning "Module install/import failed on attempt $i: $($_.Exception.Message)"
+            Start-Sleep -Seconds (5 * $i)
+            continue
+        } finally {
+            Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Completed
+        }
     }
-    else {
+
+    # If module is available, proceed to updates
+    if (Get-Module -Name PSWindowsUpdate -ListAvailable) {
         Write-Host "Checking for updates..."
 
-        # Retry loop for driver installation
         $WUmaxAttempts = 10
         $WUattempt = 0
         $WUsuccess = $false
@@ -95,40 +137,12 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                 $WUattempt++
                 Write-Host "Windows Update Attempt $WUattempt of $WUmaxAttempts..."
 
-                Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
+                # Use a transcript to capture host-bound output (Write-Host) from the module
+                $transcriptPath = Join-Path $env:TEMP ("PSWU_Transcript_{0}.txt" -f ([guid]::NewGuid()))
+                Invoke-InstallWindowsUpdate-WithTranscript -TranscriptPath $transcriptPath -DelayBeforeRestartSeconds 10
 
-                Write-Host "Windows Update completed successfully."
-
-                # Check for pending reboot and restart automatically if needed
-                Write-Host "Checking for pending reboot..."
-                if (Test-PendingReboot) {
-                    Write-Host "Reboot is required. Attempting to restart the computer..."
-
-                    # Detect elevation
-                    $isElevated = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
-
-                    if ($isElevated) {
-                        try {
-                            Restart-Computer -Force -Confirm:$false -ErrorAction Stop
-                        } catch {
-                            Write-Error "Restart-Computer failed: $($_.Exception.Message)"
-                        }
-                    } else {
-                        # Relaunch an elevated PowerShell to perform the restart (will prompt UAC)
-                        try {
-                            Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', 'Restart-Computer -Force -Confirm:$false' -Verb RunAs -ErrorAction Stop
-                        } catch {
-                            Write-Error "Failed to launch elevated restart: $($_.Exception.Message). Run the script as Administrator or remove -IgnoreReboot to let PSWindowsUpdate reboot."
-                        }
-                    }
-
-                    # Give a moment for the restart process to start
-                    Start-Sleep -Seconds 5
-                } else {
-                    Write-Host "No reboot required."
-                }
-
-                Write-Host "Windows Update completed successfully."
+                Write-Host "Windows Update attempt completed (module run finished)."
+                # If the system rebooted, the script will terminate on restart; if not, we set success to true here
                 $WUsuccess = $true
             }
             catch {
@@ -149,5 +163,12 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
         }
 
         break
+    } else {
+        Write-Warning "PSWindowsUpdate module still not available after attempt $i."
     }
 }
+
+# Restore confirm preference
+$ConfirmPreference = $oldConfirmPreference
+
+Write-Host "Script finished."
