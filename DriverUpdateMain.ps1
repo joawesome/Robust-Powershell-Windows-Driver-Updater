@@ -82,7 +82,8 @@ function Invoke-InstallWindowsUpdate-WithTranscript {
             Write-Error "Automatic reboot failed: $($_.Exception.Message)"
             # As a fallback, try to spawn an elevated one-liner restart (should not be necessary since we relaunched elevated)
             try {
-                Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', 'Restart-Computer -Force -Confirm:$false' -Verb RunAs -ErrorAction Stop
+                $restartArgs = '-NoProfile -WindowStyle Hidden -Command "Restart-Computer -Force -Confirm:$false"'
+                Start-Process -FilePath 'powershell.exe' -ArgumentList $restartArgs -Verb RunAs -ErrorAction Stop
             } catch {
                 Write-Error "Fallback elevated restart also failed: $($_.Exception.Message)"
             }
@@ -99,7 +100,7 @@ function Invoke-InstallWindowsUpdate-WithTranscript {
 # Main loop (module install + update attempts)
 # ---------------------------
 for ($i = 1; $i -le $MaxAttempts; $i++) {
-    # Check if PSWindowsUpdate is loaded or available; prefer loaded check for simplicity here
+    # Check if PSWindowsUpdate is installed/available
     if (-not (Get-Module -Name PSWindowsUpdate -ListAvailable)) {
         Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Status "Attempt $i of $MaxAttempts"
         Write-Host 'Getting Package Provider'
