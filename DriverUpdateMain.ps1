@@ -213,3 +213,6 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
 $ConfirmPreference = $oldConfirmPreference
 
 Write-Host "Operation completed... exiting"
+
+Start-Sleep -Seconds 5
+
