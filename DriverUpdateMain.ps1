@@ -102,7 +102,7 @@ function Invoke-InstallWindowsUpdate-WithTranscript {
 for ($i = 1; $i -le $MaxAttempts; $i++) {
     # Check if PSWindowsUpdate is installed/available
     if (-not (Get-Module -Name PSWindowsUpdate -ListAvailable)) {
-        Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Status "Attempt $i of $MaxAttempts"
+        Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Status "Attempt ${i} of $MaxAttempts"
         Write-Host 'Getting Package Provider'
         try { Get-PackageProvider -Name Nuget -ForceBootstrap -ErrorAction Stop | Out-Null } catch { Write-Warning "NuGet bootstrap failed: $($_.Exception.Message)" }
 
@@ -117,7 +117,7 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
             Write-Host 'Importing module...'
             Import-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
         } catch {
-            Write-Warning "Module install/import failed on attempt $i: $($_.Exception.Message)"
+            Write-Warning "Module install/import failed on attempt ${i}: $($_.Exception.Message)"
             Start-Sleep -Seconds (5 * $i)
             continue
         } finally {
@@ -165,7 +165,7 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
 
         break
     } else {
-        Write-Warning "PSWindowsUpdate module still not available after attempt $i."
+        Write-Warning "PSWindowsUpdate module still not available after attempt ${i}."
     }
 }
 
