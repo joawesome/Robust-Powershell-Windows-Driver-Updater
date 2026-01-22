@@ -135,7 +135,7 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                 }
 
                 if ($needsReboot) {
-                    Write-Host "Module requested a reboot (detected by transcript)."
+                    Write-Host "Reboot was requested"
                     # Attempt restart — script is elevated because we relaunched earlier
                     $ok = Try-RestartComputer -DelaySeconds 10
                     if ($ok) { 
@@ -146,7 +146,10 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                         # keep the transcript for inspection if debug mode off
                     }
                 } else {
-                    Write-Host "Module did not request reboot (no matching phrase)."
+                    Write-Host "Updates were successful. No reboots were required."
+                    
+                    Remove-Item "$([Environment]::GetFolderPath('Startup'))\DriverUpdaterStartup.cmd" -Force -ErrorAction SilentlyContinue
+
                     if (-not $DebugMode) {
                         # remove transcript if not debugging
                         try { Remove-Item -Path $transcriptPath -ErrorAction SilentlyContinue } catch {}
@@ -173,4 +176,4 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
 # Restore confirm preference
 $ConfirmPreference = $oldConfirmPreference
 
-Write-Host "Script finished."
+Write-Host "Operation completed... exiting"
