@@ -13,4 +13,4 @@ Set-Content -Path $cmdFilePath -Value $psCommand -Encoding ASCII
 Write-Output "Startup CMD file created at: $cmdFilePath"
 
 # ---- RUN IT NOW ----
-Start-Process powershell -ExecutionPolicy Bypass -Command "irm 'https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1' | iex"
+irm 'https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1' | Invoke-Expression
