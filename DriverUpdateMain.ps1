@@ -1,5 +1,41 @@
 # Description: Installs PSWindowsUpdate (if needed), runs driver updates, detects
 # "Reboot is required, but do it manually." in the module output, and reboots automatically.
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int X,
+        int Y,
+        int cx,
+        int cy,
+        uint uFlags
+    );
+}
+"@
+
+$HWND_TOPMOST = [IntPtr]::new(-1)
+$SWP_NOMOVE   = 0x0002
+$SWP_NOSIZE   = 0x0001
+
+# Wait until window handle exists
+do {
+    Start-Sleep -Milliseconds 100
+    $hwnd = (Get-Process -Id $PID).MainWindowHandle
+} while ($hwnd -eq 0)
+
+[Win32]::SetWindowPos(
+    $hwnd,
+    $HWND_TOPMOST,
+    0, 0, 0, 0,
+    $SWP_NOMOVE -bor $SWP_NOSIZE
+)
+
+
+
 param(
     [switch]$DebugMode
 )
