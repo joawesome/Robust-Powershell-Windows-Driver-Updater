@@ -1,159 +1,153 @@
-<#
-.SYNOPSIS
-  Install PSWindowsUpdate (if needed) and attempt driver updates with retries.
+# Description: This script will install the PSWindowsUpdate module and check for driver updates.
+# It will run in a separate window and check for updates. If there are no updates, it will exit.
+# You can just run this script by itself by running the command:
+# irm  https://raw.githubusercontent.com/joawesome/Robust-Powershell-Windows-Driver-Updater/main/DriverUpdateMain.ps1 | iex
 
-.DESCRIPTION
-  - Ensures TLS 1.2, installs/loads PSWindowsUpdate if missing, then runs Install-WindowsUpdate
-    filtering for driver updates. Retries are implemented for both module install and update steps.
+# How many attempts we want to try and install the module.
+$MaxAttempts = 5
 
-.PARAMETER MaxModuleAttempts
-  Number of times to try installing/loading the module.
+# Function: Test if a reboot is pending (checks common indicators in both registry views)
+function Test-PendingReboot {
+    Add-Type -AssemblyName Microsoft.Win32.Registry
 
-.PARAMETER MaxWUAttempts
-  Number of times to try Install-WindowsUpdate.
-
-.PARAMETER CurrentUserInstall
-  If set, uses -Scope CurrentUser for Install-Module to avoid requiring elevation.
-
-.EXAMPLE
-  .\DriverUpdateMain.ps1 -Verbose
-#>
-
-[CmdletBinding()]
-param(
-    [int]$MaxModuleAttempts = 5,
-    [int]$MaxWUAttempts     = 10,
-    [switch]$CurrentUserInstall
-)
-
-function Ensure-Tls12 {
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Write-Verbose "Set TLS to Tls12"
-    } catch {
-        Write-Warning "Failed to set TLS 1.2: $($_.Exception.Message)"
+    # Helper to check key existence in a specific view
+    $checkKey = {
+        param($hive, $subKey, $view)
+        try {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+            $k = $base.OpenSubKey($subKey)
+            if ($k) { return $true }
+        } catch { }
+        return $false
     }
-}
 
-function Ensure-PSWindowsUpdate {
-    param(
-        [int]$Attempts = 5,
-        [switch]$CurrentUser
-    )
+    # Helper to read a value safely
+    $readValue = {
+        param($hive, $subKey, $valueName, $view)
+        try {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey($hive, $view)
+            $k = $base.OpenSubKey($subKey)
+            if ($k) {
+                return $k.GetValue($valueName, $null)
+            }
+        } catch { }
+        return $null
+    }
 
-    $scopeArg = if ($CurrentUser) { "-Scope CurrentUser" } else { "" }
+    $views = @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)
+    foreach ($view in $views) {
+        # Component Based Servicing RebootPending
+        if (&$checkKey([Microsoft.Win32.RegistryHive]::LocalMachine, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending', $view)) {
+            return $true
+        }
 
-    for ($i = 1; $i -le $Attempts; $i++) {
-        Write-Verbose "Module check attempt $i of $Attempts"
+        # Windows Update RebootRequired (this is the key you mentioned)
+        if (&$checkKey([Microsoft.Win32.RegistryHive]::LocalMachine, 'SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\RebootRequired', $view)) {
+            return $true
+        }
 
-        # Check installed modules (not only loaded)
-        $installed = Get-InstalledModule -Name PSWindowsUpdate -ErrorAction SilentlyContinue
-        if ($installed) {
-            Write-Verbose "PSWindowsUpdate is installed (version $($installed.Version)). Importing..."
-            try {
-                Import-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+        # PendingFileRenameOperations
+        $pfro = &$readValue([Microsoft.Win32.RegistryHive]::LocalMachine, 'SYSTEM\CurrentControlSet\Control\Session Manager', 'PendingFileRenameOperations', $view)
+        if ($pfro -and ($pfro -is [string[]] -or $pfro.Length -gt 0)) {
+            return $true
+        }
+
+        # Pending computer rename (ActiveComputerName vs ComputerName)
+        try {
+            $activeName = &$readValue([Microsoft.Win32.RegistryHive]::LocalMachine, 'SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName', 'ComputerName', $view)
+            $pendingName = &$readValue([Microsoft.Win32.RegistryHive]::LocalMachine, 'SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName', 'ComputerName', $view)
+            if ($activeName -and $pendingName -and ($activeName -ne $pendingName)) {
                 return $true
-            } catch {
-                Write-Warning "Failed importing PSWindowsUpdate: $($_.Exception.Message)"
-                Start-Sleep -Seconds (5 * $i)
-                continue
             }
-        }
+        } catch { }
+    }
 
-        # Not installed: attempt to install
-        try {
-            Write-Verbose "Bootstrapping NuGet provider (if needed)"
-            Get-PackageProvider -Name NuGet -ForceBootstrap -ErrorAction Stop | Out-Null
+    return $false
+}
 
-            # Ensure PSGallery is available and trusted
+for ($i = 1; $i -le $MaxAttempts; $i++) {
+    if (-Not (Get-Module -Name PSWindowsUpdate)) {
+        Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Status "Attempt $i of $MaxAttempts"
+        Write-Host 'Getting Package Provider'
+        Get-PackageProvider -Name Nuget -ForceBootstrap | Out-Null
+
+        Write-Host 'Setting Repository'
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+
+        Write-Host 'Installing PSWindowsUpdate Module...'
+        Install-Module -Name PSWindowsUpdate -Force
+        Start-Sleep -Seconds 1
+
+        Write-Host 'Importing module...'
+        Import-Module -Name PSWindowsUpdate -Force
+        Write-Progress -Activity "Preparing PSWindowsUpdate Module" -Completed
+    }
+    else {
+        Write-Host "Checking for updates..."
+
+        # Retry loop for driver installation
+        $WUmaxAttempts = 10
+        $WUattempt = 0
+        $WUsuccess = $false
+
+        while (-not $WUsuccess -and $WUattempt -lt $WUmaxAttempts) {
             try {
-                $repo = Get-PSRepository -Name PSGallery -ErrorAction Stop
-                if ($repo.InstallationPolicy -ne 'Trusted') {
-                    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction Stop
+                $WUattempt++
+                Write-Host "Windows Update Attempt $WUattempt of $WUmaxAttempts..."
+
+                Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
+
+                Write-Host "Windows Update completed successfully."
+
+                # Check for pending reboot and restart automatically if needed
+                Write-Host "Checking for pending reboot..."
+                if (Test-PendingReboot) {
+                    Write-Host "Reboot is required. Attempting to restart the computer..."
+
+                    # Detect elevation
+                    $isElevated = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+
+                    if ($isElevated) {
+                        try {
+                            Restart-Computer -Force -Confirm:$false -ErrorAction Stop
+                        } catch {
+                            Write-Error "Restart-Computer failed: $($_.Exception.Message)"
+                        }
+                    } else {
+                        # Relaunch an elevated PowerShell to perform the restart (will prompt UAC)
+                        try {
+                            Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile', '-WindowStyle', 'Hidden', '-Command', 'Restart-Computer -Force -Confirm:$false' -Verb RunAs -ErrorAction Stop
+                        } catch {
+                            Write-Error "Failed to launch elevated restart: $($_.Exception.Message). Run the script as Administrator or remove -IgnoreReboot to let PSWindowsUpdate reboot."
+                        }
+                    }
+
+                    # Give a moment for the restart process to start
+                    Start-Sleep -Seconds 5
+                } else {
+                    Write-Host "No reboot required."
                 }
-            } catch {
-                Write-Verbose "PSGallery repository not registered; registering..."
-                Register-PSRepository -Name PSGallery -SourceLocation 'https://www.powershellgallery.com/api/v2' -InstallationPolicy Trusted -ErrorAction Stop
-            }
 
-            Write-Verbose "Installing PSWindowsUpdate (attempt $i)"
-            # Build common parameters: use -Scope CurrentUser optionally to avoid admin requirement
-            if ($CurrentUser) {
-                Install-Module -Name PSWindowsUpdate -Force -AllowClobber -Scope CurrentUser -Repository PSGallery -ErrorAction Stop
-            } else {
-                Install-Module -Name PSWindowsUpdate -Force -AllowClobber -Repository PSGallery -ErrorAction Stop
+                Write-Host "Windows Update completed successfully."
+                $WUsuccess = $true
             }
+            catch {
+                Write-Warning "Windows Update failed with error: $($_.Exception.Message)"
 
-            Import-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
-            Write-Verbose "PSWindowsUpdate installed and imported"
-            return $true
+                if ($_.Exception.HResult -eq -2145124329) {  # 0x80248007
+                    Write-Warning "Encountered 0x80248007 (Windows Update cache issue). Retrying..."
+                } else {
+                    Write-Warning "Unexpected error. Retrying..."
+                }
+
+                Start-Sleep -Seconds 15
+            }
         }
-        catch {
-            Write-Warning "Install attempt $i failed: $($_.Exception.Message)"
-            Start-Sleep -Seconds (5 * $i)  # simple backoff
+
+        if (-not $WUsuccess) {
+            Write-Error "Driver update failed after $WUmaxAttempts attempts."
         }
+
+        break
     }
-
-    return $false
 }
-
-function Run-DriverUpdates {
-    param(
-        [int]$Attempts = 10
-    )
-
-    $attempt = 0
-    while ($attempt -lt $Attempts) {
-        $attempt++
-        Write-Verbose "Windows Update attempt $attempt of $Attempts"
-
-        try {
-            # Use -AcceptAll and -IgnoreReboot to avoid prompts; -ErrorAction Stop to catch failures
-            Install-WindowsUpdate -AcceptAll -UpdateType Driver -IgnoreReboot -ErrorAction Stop
-
-            Write-Host "Windows Update completed successfully."
-            return $true
-        } catch {
-            $ex = $_.Exception
-            Write-Warning "Windows Update failed: $($ex.Message)"
-
-            # Log HResult/Win32Exception code if available
-            if ($ex.HResult) {
-                Write-Verbose ("Exception HResult: 0x{0:X8}" -f $ex.HResult)
-            }
-
-            # Specific remediation hint for cache error 0x80248007
-            if ($ex.HResult -eq -2145124329) {
-                Write-Warning "Encountered 0x80248007 (Windows Update cache). Consider resetting SoftwareDistribution and Background Intelligent Transfer Service (BITS)."
-            }
-
-            Start-Sleep -Seconds (15 * [Math]::Min($attempt, 6))
-        }
-    }
-
-    return $false
-}
-
-# --- Main ---
-Ensure-Tls12
-
-# Optional: detect if running elevated (informational only)
-$elevated = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
-if (-not $elevated) {
-    Write-Verbose "Not running elevated. Install-Module without -Scope CurrentUser will fail. Use -CurrentUserInstall to avoid elevation or run as Administrator."
-}
-
-$installed = Ensure-PSWindowsUpdate -Attempts $MaxModuleAttempts -CurrentUser:$CurrentUserInstall
-if (-not $installed) {
-    Write-Error "Failed to install/import PSWindowsUpdate after $MaxModuleAttempts attempts."
-    exit 2
-}
-
-$success = Run-DriverUpdates -Attempts $MaxWUAttempts
-if (-not $success) {
-    Write-Error "Driver update failed after $MaxWUAttempts attempts."
-    exit 3
-}
-
-Write-Host "Driver update flow completed."
-exit 0
