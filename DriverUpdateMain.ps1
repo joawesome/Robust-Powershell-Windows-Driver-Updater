@@ -4,6 +4,7 @@
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+
 public class Win32 {
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(
@@ -13,24 +14,75 @@ public class Win32 {
         int Y,
         int cx,
         int cy,
-        uint uFlags
-    );
+        uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool MoveWindow(
+        IntPtr hWnd,
+        int X,
+        int Y,
+        int nWidth,
+        int nHeight,
+        bool bRepaint);
 }
 "@
 
 $HWND_TOPMOST = [IntPtr]::new(-1)
-$SWP_NOMOVE = 0x0002
-$SWP_NOSIZE = 0x0001
 
-$hwnd = (Get-Process -Id $PID).MainWindowHandle
+function Open-DeviceManager {
 
-if ($hwnd -ne 0) {
-    [void][Win32]::SetWindowPos(
-        $hwnd,
-        $HWND_TOPMOST,
-        0, 0, 0, 0,
-        $SWP_NOMOVE -bor $SWP_NOSIZE
-    )
+    $before = @(Get-Process mmc -ErrorAction SilentlyContinue)
+
+    Start-Process devmgmt.msc
+
+    $mmc = $null
+
+    for ($i = 0; $i -lt 50; $i++) {
+
+        Start-Sleep -Milliseconds 200
+
+        $after = Get-Process mmc -ErrorAction SilentlyContinue
+
+        $mmc = Compare-Object $before $after -Property Id |
+               Where-Object SideIndicator -eq "=>" |
+               ForEach-Object { Get-Process -Id $_.Id }
+
+        if ($mmc) { break }
+
+        if (-not $mmc) {
+            $mmc = $after | Sort-Object StartTime -Descending | Select-Object -First 1
+            if ($mmc.MainWindowHandle -ne 0) { break }
+        }
+    }
+
+    if ($mmc -and $mmc.MainWindowHandle -ne 0) {
+
+        Add-Type -AssemblyName System.Windows.Forms
+
+        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+
+        $width = [math]::Floor($bounds.Width / 3)
+        $height = $bounds.Height
+
+        [Win32]::MoveWindow(
+            $mmc.MainWindowHandle,
+            0,
+            0,
+            $width,
+            $height,
+            $true
+        ) | Out-Null
+
+        [Win32]::SetWindowPos(
+            $mmc.MainWindowHandle,
+            $HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            0x0001 -bor 0x0002
+        ) | Out-Null
+    }
 }
 
 param(
