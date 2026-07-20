@@ -1,39 +1,66 @@
 # Description: Installs PSWindowsUpdate (if needed), runs driver updates, detects
 # "Reboot is required, but do it manually." in the module output, and reboots automatically.
+Add-Type -AssemblyName System.Windows.Forms
+
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public class Win32 {
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(
-        IntPtr hWnd,
-        IntPtr hWndInsertAfter,
-        int X,
-        int Y,
-        int cx,
-        int cy,
-        uint uFlags
-    );
+        IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 }
 "@
 
 $HWND_TOPMOST = [IntPtr]::new(-1)
-$SWP_NOMOVE   = 0x0002
-$SWP_NOSIZE   = 0x0001
+$SWP_SHOWWINDOW = 0x0040
+$SW_RESTORE = 9   # un-maximize first, or SetWindowPos will be ignored
 
-# Wait until window handle exists
+# Get the primary screen's working area (excludes taskbar)
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$halfWidth = [int]($screen.Width / 2)
+
+# --- Position THIS console window on the LEFT half, always on top ---
 do {
     Start-Sleep -Milliseconds 100
     $hwnd = (Get-Process -Id $PID).MainWindowHandle
 } while ($hwnd -eq 0)
 
+[Win32]::ShowWindow($hwnd, $SW_RESTORE) | Out-Null
 [Win32]::SetWindowPos(
-    $hwnd,
-    $HWND_TOPMOST,
-    0, 0, 0, 0,
-    $SWP_NOMOVE -bor $SWP_NOSIZE
+    $hwnd, $HWND_TOPMOST,
+    $screen.X, $screen.Y, $halfWidth, $screen.Height,
+    $SWP_SHOWWINDOW
 )
 
+# --- Launch Device Manager and position it on the RIGHT half ---
+$devMgr = Start-Process -FilePath "devmgmt.msc" -PassThru
+
+# devmgmt.msc runs inside mmc.exe — wait for its window handle
+$mmcHandle = [IntPtr]::Zero
+$deadline = (Get-Date).AddSeconds(15)
+while ($mmcHandle -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 200
+    $mmc = Get-Process -Name mmc -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Select-Object -First 1
+    if ($mmc) { $mmcHandle = $mmc.MainWindowHandle }
+}
+
+if ($mmcHandle -ne [IntPtr]::Zero) {
+    [Win32]::ShowWindow($mmcHandle, $SW_RESTORE) | Out-Null
+    [Win32]::SetWindowPos(
+        $mmcHandle, [IntPtr]::Zero,
+        $screen.X + $halfWidth, $screen.Y, $screen.Width - $halfWidth, $screen.Height,
+        $SWP_SHOWWINDOW
+    )
+} else {
+    Write-Warning "Could not find Device Manager window to position."
+}
 
 
 param(
