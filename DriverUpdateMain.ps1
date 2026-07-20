@@ -1,10 +1,8 @@
 # Description: Installs PSWindowsUpdate (if needed), runs driver updates, detects
 # "Reboot is required, but do it manually." in the module output, and reboots automatically.
-
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-
 public class Win32 {
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(
@@ -14,76 +12,29 @@ public class Win32 {
         int Y,
         int cx,
         int cy,
-        uint uFlags);
-
-    [DllImport("user32.dll")]
-    public static extern bool MoveWindow(
-        IntPtr hWnd,
-        int X,
-        int Y,
-        int nWidth,
-        int nHeight,
-        bool bRepaint);
+        uint uFlags
+    );
 }
 "@
 
 $HWND_TOPMOST = [IntPtr]::new(-1)
+$SWP_NOMOVE   = 0x0002
+$SWP_NOSIZE   = 0x0001
 
-function Open-DeviceManager {
+# Wait until window handle exists
+do {
+    Start-Sleep -Milliseconds 100
+    $hwnd = (Get-Process -Id $PID).MainWindowHandle
+} while ($hwnd -eq 0)
 
-    $before = @(Get-Process mmc -ErrorAction SilentlyContinue)
+[Win32]::SetWindowPos(
+    $hwnd,
+    $HWND_TOPMOST,
+    0, 0, 0, 0,
+    $SWP_NOMOVE -bor $SWP_NOSIZE
+)
 
-    Start-Process devmgmt.msc
 
-    $mmc = $null
-
-    for ($i = 0; $i -lt 50; $i++) {
-
-        Start-Sleep -Milliseconds 200
-
-        $after = Get-Process mmc -ErrorAction SilentlyContinue
-
-        $mmc = Compare-Object $before $after -Property Id |
-               Where-Object SideIndicator -eq "=>" |
-               ForEach-Object { Get-Process -Id $_.Id }
-
-        if ($mmc) { break }
-
-        if (-not $mmc) {
-            $mmc = $after | Sort-Object StartTime -Descending | Select-Object -First 1
-            if ($mmc.MainWindowHandle -ne 0) { break }
-        }
-    }
-
-    if ($mmc -and $mmc.MainWindowHandle -ne 0) {
-
-        Add-Type -AssemblyName System.Windows.Forms
-
-        $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-
-        $width = [math]::Floor($bounds.Width / 3)
-        $height = $bounds.Height
-
-        [Win32]::MoveWindow(
-            $mmc.MainWindowHandle,
-            0,
-            0,
-            $width,
-            $height,
-            $true
-        ) | Out-Null
-
-        [Win32]::SetWindowPos(
-            $mmc.MainWindowHandle,
-            $HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            0x0001 -bor 0x0002
-        ) | Out-Null
-    }
-}
 
 param(
     [switch]$DebugMode
@@ -264,4 +215,3 @@ $ConfirmPreference = $oldConfirmPreference
 Write-Host "Operation completed... exiting"
 
 Start-Sleep -Seconds 5
-
