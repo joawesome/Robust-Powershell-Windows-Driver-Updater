@@ -212,6 +212,9 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                     Write-Host "Updates were successful. No reboots were required."
                     
                     Remove-Item "$([Environment]::GetFolderPath('Startup'))\DriverUpdaterStartup.cmd" -Force -ErrorAction SilentlyContinue
+                    Start-Sleep -Seconds 5
+                    
+                    & "$env:WINDIR\System32\Sysprep\sysprep.exe" /oobe /generalize /shutdown
 
                     if (-not $DebugMode) {
                         # remove transcript if not debugging
@@ -221,8 +224,8 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
 
                 $WUsuccess = $true
             } catch {
-                Write-Warning "Windows Update attempt failed: $($_.Exception.Message)"
-                Start-Sleep -Seconds 15
+                Write-Warning "Windows Update attempt failed!! Trying again in 10 Seconds. Failed with: $($_.Exception.Message)"
+                Start-Sleep -Seconds 10
             }
         }
 
