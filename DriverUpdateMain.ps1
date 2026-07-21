@@ -212,11 +212,11 @@ for ($i = 1; $i -le $MaxAttempts; $i++) {
                     Write-Host "Updates were successful. No reboots were required."
                     
                     Remove-Item "$([Environment]::GetFolderPath('Startup'))\DriverUpdaterStartup.cmd" -Force -ErrorAction SilentlyContinue
-                    Start-Sleep -Seconds 5
+                   # Start-Sleep -Seconds 5
                     
-                    & "$env:WINDIR\System32\Sysprep\sysprep.exe" /oobe /generalize /shutdown
-                    Write-Host "Now shutting down into Out-Of-Box-Experience"
-                    Start-Sleep -Seconds 5
+                   # & "$env:WINDIR\System32\Sysprep\sysprep.exe" /oobe /generalize /shutdown
+                   # Write-Host "Now shutting down into Out-Of-Box-Experience"
+                   # Start-Sleep -Seconds 5
 
                     if (-not $DebugMode) {
                         # remove transcript if not debugging
