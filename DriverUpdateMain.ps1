@@ -2,6 +2,19 @@
 # "Reboot is required, but do it manually." in the module output, and reboots automatically.
 Add-Type -AssemblyName System.Windows.Forms
 
+Write-Host "Welcome to the automatic driver installation script"
+Start-Sleep -Seconds 5
+Write-Host "This utility will download and install all drivers using windows update and perform a BIOS update on the device"
+Start-Sleep -Seconds 3
+Write-Host "The computer will reboot multiple times to ensure all drivers are installed successfully"
+Start-Sleep -Seconds 3
+Write-Host "This window will be always on top and device manager will be opened to the right to track progress"
+Start-Sleep -Seconds 3
+Write-Host "Checking for drivers via windows update..."
+
+
+
+
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -35,7 +48,7 @@ do {
     $hwnd, $HWND_TOPMOST,
     $screen.X, $screen.Y, $halfWidth, $screen.Height,
     $SWP_SHOWWINDOW
-)
+) | Out-Null
 
 # --- Launch Device Manager and position it on the RIGHT half ---
 $devMgr = Start-Process -FilePath "devmgmt.msc" -PassThru
@@ -57,7 +70,7 @@ if ($mmcHandle -ne [IntPtr]::Zero) {
         $mmcHandle, [IntPtr]::Zero,
         $screen.X + $halfWidth, $screen.Y, $screen.Width - $halfWidth, $screen.Height,
         $SWP_SHOWWINDOW
-    )
+    ) | Out-Null
 } else {
     Write-Warning "Could not find Device Manager window to position."
 }
