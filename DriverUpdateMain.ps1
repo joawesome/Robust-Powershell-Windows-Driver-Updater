@@ -63,9 +63,9 @@ if ($mmcHandle -ne [IntPtr]::Zero) {
 }
 
 
-param(
-    [switch]$DebugMode
-)
+#param(
+#    [switch]$DebugMode
+#)
 
 # Relaunch elevated if needed (single UAC prompt)
 if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
